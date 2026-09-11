@@ -35,8 +35,7 @@ jobs:
             libxcursor-dev \
             libxi-dev \
             libcereal-dev \
-            libnlopt-dev \
-            libopenmeshcraft-dev
+            libnlopt-dev
 
       - name: Verify CMake Installation
         run: cmake --version && gcc --version
