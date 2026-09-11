@@ -35,7 +35,7 @@ jobs:
           mkdir -p deps/build
           cd deps/build
           cmake .. -DDESTDIR="$HOME/deps_install"
-          make -j$(nproc) --keep-going
+          make -j2
 
       - name: Create App Build Directory
         run: mkdir -p build
