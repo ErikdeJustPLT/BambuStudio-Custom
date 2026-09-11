@@ -1,4 +1,4 @@
-name: Build Custom CLI Version
+name: Build Custom CLI Version (Linux)
 
 on:
   push:
@@ -6,45 +6,55 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-windows-cli:
-    runs-on: windows-2022
+  build-linux-cli:
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v5
 
       - name: Install Dependencies
         run: |
-          choco install cmake --version=4.2.3 -y
-        shell: cmd
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            git \
+            libboost-all-dev \
+            libcgal-dev \
+            libopenvdb-dev \
+            libtbb-dev \
+            libglew-dev \
+            libcurl4-openssl-dev \
+            libudev-dev \
+            libfreetype6-dev
 
       - name: Verify CMake Installation
-        run: cmake --version
+        run: cmake --version && gcc --version
 
       - name: Create Build Directory
-        run: mkdir build
+        run: mkdir -p build
 
       - name: Configure CMake (CLI only)
         working-directory: build
         run: |
-          cmake .. `
-            -G "Visual Studio 17 2022" `
-            -A x64 `
-            -DSLIC3R_GUI=OFF `
-            -DSLIC3R_STATIC=ON
+          cmake .. \
+            -DSLIC3R_GUI=OFF \
+            -DSLIC3R_STATIC=ON \
+            -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
         working-directory: build
-        run: cmake --build . --config Release -j 4
+        run: cmake --build . -j $(nproc)
 
       - name: Upload CLI Executable
         uses: actions/upload-artifact@v4
         with:
-          name: BambuStudio-CLI-Windows
-          path: build/src/Release/bambu-studio-console.exe
+          name: BambuStudio-CLI-Linux
+          path: build/src/bambu-studio-console
           retention-days: 30
 
   create-release:
-    needs: build-windows-cli
+    needs: build-linux-cli
     runs-on: ubuntu-latest
     if: success()
 
@@ -54,7 +64,7 @@ jobs:
       - name: Download Artifact
         uses: actions/download-artifact@v4
         with:
-          name: BambuStudio-CLI-Windows
+          name: BambuStudio-CLI-Linux
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
@@ -62,14 +72,21 @@ jobs:
           tag_name: custom-cli-${{ github.run_number }}
           name: Custom CLI Build #${{ github.run_number }}
           body: |
-            Custom Bambu Studio CLI build with reverted auto-placement to November 2025 behavior.
+            Custom Bambu Studio CLI build (Linux) with reverted auto-placement to November 2025 behavior.
 
             **Changes:**
             - Auto-placement reverted to November 2025
             - GUI disabled (CLI only)
+            - Built for Linux
 
-            **Executable:** `bambu-studio-console.exe`
+            **Executable:** `bambu-studio-console` (Linux binary)
+
+            **Usage:**
+            ```bash
+            chmod +x bambu-studio-console
+            ./bambu-studio-console [options]
+            ```
           draft: false
           prerelease: false
           files: |
-            bambu-studio-console.exe
+            bambu-studio-console
