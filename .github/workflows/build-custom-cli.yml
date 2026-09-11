@@ -1,0 +1,87 @@
+name: Build Custom CLI Version
+
+on:
+  push:
+    branches: [ custom/revert-autoplace-to-nov2025 ]
+  workflow_dispatch:
+
+jobs:
+  build-windows-cli:
+    runs-on: windows-2022
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install Dependencies
+        run: |
+          choco install cmake --version=4.2.3 -y
+          refreshenv
+
+      - name: Create Build Directory
+        run: mkdir build
+
+      - name: Configure CMake (CLI only)
+        working-directory: build
+        run: |
+          cmake .. `
+            -G "Visual Studio 17 2022" `
+            -A x64 `
+            -DSLIC3R_GUI=OFF `
+            -DSLIC3R_STATIC=ON
+
+      - name: Build
+        working-directory: build
+        run: cmake --build . --config Release -j 4
+
+      - name: Upload CLI Executable
+        uses: actions/upload-artifact@v3
+        with:
+          name: BambuStudio-CLI-Windows
+          path: build/src/Release/bambu-studio-console.exe
+          retention-days: 30
+
+  create-release:
+    needs: build-windows-cli
+    runs-on: ubuntu-latest
+    if: success()
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Download Artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: BambuStudio-CLI-Windows
+
+      - name: Create Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: custom-cli-${{ github.run_number }}
+          release_name: Custom CLI Build #${{ github.run_number }}
+          body: |
+            Custom Bambu Studio CLI build with reverted auto-placement to November 2025 behavior.
+
+            **Changes:**
+            - Auto-placement reverted to November 2025
+            - GUI disabled (CLI only)
+
+            **Executable:** `bambu-studio-console.exe`
+          draft: false
+          prerelease: false
+
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./bambu-studio-console.exe
+          asset_name: bambu-studio-console.exe
+          asset_content_type: application/octet-stream
