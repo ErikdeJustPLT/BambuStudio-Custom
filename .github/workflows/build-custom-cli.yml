@@ -15,7 +15,10 @@ jobs:
       - name: Install Dependencies
         run: |
           choco install cmake --version=4.2.3 -y
-          refreshenv
+        shell: cmd
+
+      - name: Verify CMake Installation
+        run: cmake --version
 
       - name: Create Build Directory
         run: mkdir build
