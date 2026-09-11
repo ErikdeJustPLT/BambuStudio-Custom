@@ -30,11 +30,12 @@ jobs:
             libxkbcommon-dev
 
       - name: Build Dependencies
+        timeout-minutes: 120
         run: |
           mkdir -p deps/build
           cd deps/build
           cmake .. -DDESTDIR="$HOME/deps_install"
-          make -j$(nproc)
+          make -j$(nproc) --keep-going
 
       - name: Create App Build Directory
         run: mkdir -p build
