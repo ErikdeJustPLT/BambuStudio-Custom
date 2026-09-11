@@ -33,7 +33,10 @@ jobs:
             zlib1g-dev \
             libxinerama-dev \
             libxcursor-dev \
-            libxi-dev
+            libxi-dev \
+            libcereal-dev \
+            libnlopt-dev \
+            libopenmeshcraft-dev
 
       - name: Verify CMake Installation
         run: cmake --version && gcc --version
