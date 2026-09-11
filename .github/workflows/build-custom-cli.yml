@@ -39,7 +39,7 @@ jobs:
         run: cmake --build . --config Release -j 4
 
       - name: Upload CLI Executable
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: BambuStudio-CLI-Windows
           path: build/src/Release/bambu-studio-console.exe
@@ -51,20 +51,18 @@ jobs:
     if: success()
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Download Artifact
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: BambuStudio-CLI-Windows
 
       - name: Create Release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: softprops/action-gh-release@v1
         with:
           tag_name: custom-cli-${{ github.run_number }}
-          release_name: Custom CLI Build #${{ github.run_number }}
+          name: Custom CLI Build #${{ github.run_number }}
           body: |
             Custom Bambu Studio CLI build with reverted auto-placement to November 2025 behavior.
 
@@ -75,13 +73,5 @@ jobs:
             **Executable:** `bambu-studio-console.exe`
           draft: false
           prerelease: false
-
-      - name: Upload Release Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./bambu-studio-console.exe
-          asset_name: bambu-studio-console.exe
-          asset_content_type: application/octet-stream
+          files: |
+            bambu-studio-console.exe
