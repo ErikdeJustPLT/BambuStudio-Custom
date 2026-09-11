@@ -12,11 +12,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup MSVC
-        uses: ilammy/msvc-dev-cmd@v2
-        with:
-          arch: x64
-
       - name: Install Dependencies
         run: |
           choco install cmake --version=4.2.3 -y
