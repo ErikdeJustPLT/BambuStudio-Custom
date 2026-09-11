@@ -26,7 +26,10 @@ jobs:
             libglew-dev \
             libcurl4-openssl-dev \
             libudev-dev \
-            libfreetype6-dev
+            libfreetype6-dev \
+            libdbus-1-dev \
+            libssl-dev \
+            zlib1g-dev
 
       - name: Verify CMake Installation
         run: cmake --version && gcc --version
