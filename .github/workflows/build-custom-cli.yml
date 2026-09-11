@@ -12,35 +12,23 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Install Dependencies
+      - name: Install Base Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             build-essential \
             cmake \
             git \
-            libboost-all-dev \
-            libcgal-dev \
-            libopenvdb-dev \
-            libtbb-dev \
-            libglew-dev \
-            libglfw3-dev \
-            libcurl4-openssl-dev \
-            libudev-dev \
-            libfreetype6-dev \
-            libdbus-1-dev \
-            libssl-dev \
-            zlib1g-dev \
-            libxinerama-dev \
-            libxcursor-dev \
-            libxi-dev \
-            libcereal-dev \
-            libnlopt-dev
+            pkg-config
 
-      - name: Verify CMake Installation
-        run: cmake --version && gcc --version
+      - name: Build Dependencies
+        run: |
+          mkdir -p deps/build
+          cd deps/build
+          cmake .. -DDESTDIR="$HOME/deps_install"
+          make -j$(nproc)
 
-      - name: Create Build Directory
+      - name: Create App Build Directory
         run: mkdir -p build
 
       - name: Configure CMake (CLI only)
@@ -49,9 +37,10 @@ jobs:
           cmake .. \
             -DSLIC3R_GUI=OFF \
             -DSLIC3R_STATIC=ON \
-            -DCMAKE_BUILD_TYPE=Release
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$HOME/deps_install/usr/local"
 
-      - name: Build
+      - name: Build Application
         working-directory: build
         run: cmake --build . -j $(nproc)
 
