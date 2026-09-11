@@ -24,12 +24,16 @@ jobs:
             libopenvdb-dev \
             libtbb-dev \
             libglew-dev \
+            libglfw3-dev \
             libcurl4-openssl-dev \
             libudev-dev \
             libfreetype6-dev \
             libdbus-1-dev \
             libssl-dev \
-            zlib1g-dev
+            zlib1g-dev \
+            libxinerama-dev \
+            libxcursor-dev \
+            libxi-dev
 
       - name: Verify CMake Installation
         run: cmake --version && gcc --version
