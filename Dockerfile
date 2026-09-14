@@ -1,74 +1,67 @@
-# Multi-stage build for custom Bambu Studio CLI
-# Stage 1: Builder
-FROM fedora:39 as builder
+# Custom Bambu Studio — auto-placement reverted to November 2025 behaviour.
+#
+# Two flags that took a long time to find:
+#   DEP_WX_GTK3=ON  wxWidgets against GTK3. With the default GTK2, wxWebView
+#                   needs WebKitGTK 1.x, which does not exist on Ubuntu 24.04,
+#                   and libslic3r_gui fails with ~70 wxWebViewEvent errors.
+#   SLIC3R_GTK=3    must match the toolkit wxWidgets was built against.
+#
+# SLIC3R_GUI stays ON. BambuStudio.cpp includes <wx/stdpaths.h> unconditionally
+# and src/CMakeLists.txt references the BambuStudio target in ~30 unguarded
+# places, so GUI=OFF does not produce a CLI — it produces a broken configure.
+# The CLI lives inside this same binary.
 
-# Install build dependencies
-RUN dnf install -y \
-    gcc-c++ \
-    gcc \
-    make \
-    cmake \
-    git \
-    pkg-config \
-    boost-devel \
-    CGAL-devel \
-    glew-devel \
-    glfw-devel \
-    mesa-libGL-devel \
-    libX11-devel \
-    libXrandr-devel \
-    libXinerama-devel \
-    libXcursor-devel \
-    libXi-devel \
-    libXext-devel \
-    libxkbcommon-devel \
-    openssl-devel \
-    zlib-devel \
-    libcurl-devel \
-    freetype-devel \
-    dbus-devel \
-    libtbb-devel \
-    && dnf clean all
+FROM ubuntu:24.04 AS builder
 
-# Clone and build
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y \
+    build-essential cmake git pkg-config ninja-build nasm m4 \
+    extra-cmake-modules \
+    libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
+    libxcursor-dev libxi-dev libxext-dev libxkbcommon-dev \
+    libwayland-dev libwayland-egl1-mesa wayland-protocols \
+    libglu1-mesa-dev libcairo2-dev libosmesa6-dev \
+    libgtk-3-dev libpango1.0-dev libgdk-pixbuf2.0-dev \
+    libdbus-1-dev libwebkit2gtk-4.1-dev \
+    libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+    libsecret-1-dev libudev-dev && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /build
 RUN git clone https://github.com/ErikdeJustPLT/BambuStudio-Custom.git . && \
     git checkout custom/revert-autoplace-to-nov2025
 
-# Build dependencies
-WORKDIR /build/deps/build
-RUN cmake .. -DDESTDIR="/install" && \
+# Deps in their own layer: a failure in the app build below reuses this instead
+# of rebuilding OpenCASCADE, OpenVDB and wxWidgets from scratch.
+RUN mkdir -p deps/build && cd deps/build && \
+    cmake .. -DDESTDIR="/root/deps_install" -DDEP_WX_GTK3=ON && \
     make -j$(nproc)
 
-# Build the app
-WORKDIR /build/build
-RUN cmake .. \
-    -DSLIC3R_GUI=OFF \
-    -DSLIC3R_STATIC=ON \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_PREFIX_PATH="/install/usr/local" && \
+RUN mkdir -p build && cd build && \
+    cmake .. \
+      -DSLIC3R_GUI=ON \
+      -DSLIC3R_STATIC=ON \
+      -DSLIC3R_GTK=3 \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_PREFIX_PATH="/root/deps_install/usr/local" && \
     cmake --build . -j$(nproc)
 
-# Stage 2: Runtime (minimal image with just the binary)
-FROM fedora:39
+FROM ubuntu:24.04
 
-# Install only runtime dependencies
-RUN dnf install -y \
-    openssl-libs \
-    zlib \
-    libcurl \
-    libX11 \
-    libXrandr \
-    libxkbcommon \
-    dbus-libs \
-    && dnf clean all
+ENV DEBIAN_FRONTEND=noninteractive
 
-# Copy the built binary from builder
-COPY --from=builder /build/build/src/bambu-studio-console /usr/local/bin/bambu-studio-console
+RUN apt-get update && apt-get install -y \
+    libgtk-3-0 libwebkit2gtk-4.1-0 \
+    libgstreamer1.0-0 libgstreamer-plugins-base1.0-0 \
+    libosmesa6 libsecret-1-0 libgl1 libglu1-mesa \
+    libcairo2 libpango-1.0-0 libgdk-pixbuf-2.0-0 libdbus-1-3 && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Make it executable
-RUN chmod +x /usr/local/bin/bambu-studio-console
+# Binary and resources as siblings, mirroring the build tree layout where
+# CMake symlinks resources next to the executable.
+COPY --from=builder /build/build/src/bambu-studio /opt/bambustudio/bambu-studio
+COPY --from=builder /build/resources /opt/bambustudio/resources
 
-# Set the default command
-ENTRYPOINT ["/usr/local/bin/bambu-studio-console"]
+ENTRYPOINT ["/opt/bambustudio/bambu-studio"]
 CMD ["--help"]
