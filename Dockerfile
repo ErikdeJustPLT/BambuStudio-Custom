@@ -52,9 +52,10 @@ FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y \
+    xvfb xauth \
     libgtk-3-0 libwebkit2gtk-4.1-0 \
     libgstreamer1.0-0 libgstreamer-plugins-base1.0-0 \
-    libosmesa6 libsecret-1-0 libgl1 libglu1-mesa \
+    libosmesa6 libsecret-1-0 libgl1 libglu1-mesa libglew2.2 \
     libcairo2 libpango-1.0-0 libgdk-pixbuf-2.0-0 libdbus-1-3 && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
@@ -63,5 +64,15 @@ RUN apt-get update && apt-get install -y \
 COPY --from=builder /build/build/src/bambu-studio /opt/bambustudio/bambu-studio
 COPY --from=builder /build/resources /opt/bambustudio/resources
 
-ENTRYPOINT ["/opt/bambustudio/bambu-studio"]
-CMD ["--help"]
+# The deps stage builds FFmpeg 7.0 from source; Ubuntu 24.04 ships only 6.1, so
+# libavcodec.so.61 and friends have no apt equivalent and must come from there.
+COPY --from=builder /root/deps_install/usr/local/lib/*.so* /usr/local/lib/
+RUN ldconfig
+
+# AppRun is the path the existing pipeline's SLICER_BIN already points at, so
+# this image is a drop-in for the AppImage-based ones.
+COPY bambu-headless /opt/bambu/squashfs-root/AppRun
+RUN chmod +x /opt/bambu/squashfs-root/AppRun
+
+ENTRYPOINT []
+CMD ["/opt/bambu/squashfs-root/AppRun", "--help"]

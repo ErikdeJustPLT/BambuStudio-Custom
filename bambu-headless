@@ -1,0 +1,22 @@
+#!/bin/sh
+# The binary calls glfwInit unconditionally (for thumbnails) and aborts without a
+# display, so a virtual one is required even for --help. xvfb-run's auto-servernum
+# search hangs in a minimal container, hence a fixed display started directly.
+set -e
+
+mkdir -p /tmp/.X11-unix
+
+Xvfb :99 -screen 0 1024x768x24 -nolisten tcp >/dev/null 2>&1 &
+
+i=0
+while [ ! -e /tmp/.X11-unix/X99 ]; do
+    i=$((i + 1))
+    if [ "$i" -gt 100 ]; then
+        echo "bambu-headless: Xvfb failed to start on :99" >&2
+        exit 1
+    fi
+    sleep 0.1
+done
+
+export DISPLAY=:99
+exec /opt/bambustudio/bambu-studio "$@"
