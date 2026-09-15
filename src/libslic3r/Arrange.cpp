@@ -1,4 +1,4 @@
-﻿#include "Arrange.hpp"
+#include "Arrange.hpp"
 #include "Print.hpp"
 #include "BoundingBox.hpp"
 
@@ -114,11 +114,6 @@ void update_selected_items_inflation(ArrangePolygons& selected, const DynamicPri
         // 2. if there is an object with tree support, all objects use the max tree branch radius (brim_max=branch diameter)
         // 3. otherwise, use each object's own brim width
         ap.inflation = params.min_obj_distance != 0 ? params.min_obj_distance / 2 : params.plate_has_tree_support ? scaled(params.brim_max / 2) : scaled(ap.brim_width);
-        // STUDIO: 调用方可通过 params.min_inflation_floor 显式要求"最小可见间隙"。
-        // 仅在自动档位（用户没显式设 min_obj_distance）下生效，避免污染显式间距语义。
-        // 默认 0 = 关闭，保持各 arrange 路径的旧行为；FillBedJob 会在调用前主动设置。
-        if (params.min_obj_distance == 0 && params.min_inflation_floor > 0)
-            ap.inflation = std::max(ap.inflation, params.min_inflation_floor);
         });
     params.brim_skirt_distance = std::max(params.brim_skirt_distance, float(params.brim_max));
 }
@@ -330,9 +325,8 @@ protected:
         double bindist = 0;
         if (starting_point_alignment == PConfig::Alignment::BOTTOM_LEFT)
             bindist = norm(pl::distance(ibb.minCorner(), origin_pack));
-        else if (starting_point_alignment == PConfig::Alignment::TOP_RIGHT) {
+        else if (starting_point_alignment == PConfig::Alignment::TOP_RIGHT)
             bindist = norm(pl::distance(ibb.maxCorner(), origin_pack));
-        }
         else
             bindist = norm(pl::distance(ibb.center(), origin_pack));
         return bindist;
@@ -420,7 +414,9 @@ protected:
                 score = 0.2 * dist + 0.8 * bindist;
             }
             else {
-                dist = dist_to_bin(ibb, origin_pack, m_pconf.starting_point);
+                double bindist = dist_to_bin(ibb, origin_pack, m_pconf.starting_point);
+                dist = 0.8 * dist + 0.2 * bindist;
+
 
                 // Prepare a variable for the alignment score.
                 // This will indicate: how well is the candidate item
@@ -543,38 +539,24 @@ protected:
             score += lambda4 * hasRowHeightConflict + lambda4 * hasLidHeightConflict;
         }
         else {
-            // 高度接近的件尽量摆到一起
+            int valid_items_cnt = 0;
             double height_score = 0;
-            constexpr double height_weight = 0.1;
-
-            auto query = bgi::intersects(ibb);
-            auto& index = isBig(item.area()) ? spatindex : smalls_spatindex;
-            std::vector<SpatElement> result;
-            result.reserve(index.size());
-            index.query(query, std::back_inserter(result));
-
-            for (auto& e : result) {
-                auto idx = e.second;
-                Item& p = m_items[idx];
-                height_score += std::abs(item.height - p.height) / params.printable_height * norm(pl::distance(ibb.center(), p.boundingBox().center()));
-            }
-
-            if (result.size() > 0) {
-                height_score /= result.size();
-                score = (1 - height_weight) * score + height_weight * height_score;
-            }
-
-            // 耗材类型检查
             for (int i = 0; i < m_items.size(); i++) {
                 Item& p = m_items[i];
-                if (p.is_virt_object) {
-                    continue;
-                }
-                if (!Print::is_filaments_compatible({ item.filament_temp_type,p.filament_temp_type })) {
-                    score += LARGE_COST_TO_REJECT;
-                    break;
+                if (!p.is_virt_object) {
+                    valid_items_cnt++;
+                    // 高度接近的件尽量摆到一起
+                    height_score += (1- std::abs(item.height - p.height) / params.printable_height)
+                        * norm(pl::distance(ibb.center(), p.boundingBox().center()));
+                    //score += LARGE_COST_TO_REJECT * (item.bed_temp - p.bed_temp != 0);
+                    if (!Print::is_filaments_compatible({ item.filament_temp_type,p.filament_temp_type })) {
+                        score += LARGE_COST_TO_REJECT;
+                        break;
+                    }
                 }
             }
+            if (valid_items_cnt > 0)
+                score += height_score / valid_items_cnt;
         }
 
         std::map<int, std::string> extruder_id_types;
@@ -625,7 +607,7 @@ public:
         , m_bin(bin)
     {
         m_bin_area = abs(sl::area(bin));  // due to clockwise or anti-clockwise, the result of sl::area may be negative
-        m_norm = std::sqrt(2.0 * m_bin_area);
+        m_norm = std::sqrt(m_bin_area);
         fill_config(m_pconf, params);
         this->params = params;
 
@@ -909,17 +891,18 @@ void _arrange(
             auto bb = itm.boundingBox();
             auto pure_bin_width = bin.width() + scale_(params.bed_shrink_x) * 2;
             auto pure_bin_height = bin.height() + scale_(params.bed_shrink_y) * 2;
-            auto pure_item_width = bb.width() - itm.inflation() * 2;
-            auto pure_item_height = bb.height() - itm.inflation() * 2;
-            if (pure_item_width > pure_bin_width || pure_item_height > pure_bin_height) {
-                auto angle = min_area_boundingbox_rotation(itm.transformedShape());
+            auto                pure_item_width = bb.width() - itm.inflation() * 2;
+            auto                pure_item_height = bb.height() - itm.inflation() * 2;
+            if (pure_item_width >= pure_bin_width || pure_item_height >= pure_bin_height) {
+                auto angle = fit_into_box_rotation(itm.transformedShape(), bin);
                 BOOST_LOG_TRIVIAL(debug) << itm.name << " too big, rotate to fit_into_box_rotation=" << angle;
-                allowed_angles.emplace_back(angle);
+                allowed_angles = {angle};
             }
+
             // Use the minimum bounding box rotation as a starting point.
             // TODO: This only works for convex hull. If we ever switch to concave
             // polygon nesting, a convex hull needs to be calculated.
-            if (params.align_to_y_axis) {
+            else if (params.align_to_y_axis) {
                 // only rotate the object if its long axis is significanly larger than its short axis (more than 10%)
                 try {
                     auto bbox = minAreaBoundingBox<ExPolygon, TCompute<ExPolygon>, boost::rational<LargeInt>>(itm.transformedShape());
@@ -956,21 +939,20 @@ void _arrange(
                 bp2d::Coord infl = std::min(original_infl, static_cast<bp2d::Coord>(std::floor(std::min(pure_bin_width - bb.width(), pure_bin_height - bb.height())) / 2.0));
 
                 // check and correct the inflation
-                if (infl > 0 && infl < original_infl){
+                if (infl < original_infl){
                     sl::offset(rotsh, infl);
                     auto box = sl::boundingBox(rotsh);
                     auto diff_w = box.width() - pure_bin_width;
                     auto diff_h = box.height() - pure_bin_height;
-                    if (diff_w > 1 || diff_h > 1)
+                    if (diff_w > 0 || diff_h > 0)
                     {
                         infl -= static_cast<bp2d::Coord>(std::max(diff_w, diff_h));
                     }
                 }
 
-                if (infl >= 0) {
-                    if (params.bed_shrink_x < 0) {
-                        infl = std::max(infl,(bp2d::Coord) scale_(-params.bed_shrink_x));
-                    }
+                if (infl >= 0/* && itm.height <= params.printable_height*/) {
+                    // if the bed is expanded, the item should also be expanded
+                    if (params.bed_shrink_x < 0) infl = std::max(infl,(bp2d::Coord) scale_(-params.bed_shrink_x));
                     itm.allowed_rotations.push_back({angle, infl});
                 }
             }
@@ -1069,7 +1051,7 @@ static void process_arrangeable(const ArrangePolygon &arrpoly,
     item.bed_temp = arrpoly.first_bed_temp;
     item.print_temp = arrpoly.print_temp;
     item.vitrify_temp = arrpoly.vitrify_temp;
-    item.inflation(std::max(arrpoly.inflation, static_cast<coord_t>(MIN_SEPARATION)));
+    item.inflation(arrpoly.inflation);
     item.filament_temp_type = arrpoly.filament_temp_type;
 }
 

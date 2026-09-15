@@ -1523,6 +1523,56 @@ static void load_downward_settings_list_from_config(std::string config_file, std
     }
 }
 
+// Places parts at the plate's X extremes instead of nesting them. Generic arrange
+// inflates items by the sequential-print clearance in both axes, which makes a
+// portrait part too deep for the plate and forces a 90 degree rotation that splits
+// a pair across two plates. Parts sit side by side in X, never behind each other,
+// so depth is checked against the raw plate with no clearance applied.
+static bool arrange_left_right(ArrangePolygons &selected, const Points &raw_bedpts, std::string &err)
+{
+    if (selected.empty())
+        return true;
+
+    const BoundingBox bed_bb = Polygon(raw_bedpts).bounding_box();
+    const size_t      n      = selected.size();
+
+    for (size_t i = 0; i < n; ++i) {
+        ArrangePolygon &ap = selected[i];
+
+        ap.rotation = 0.;
+        ap.bed_idx  = 0;
+
+        // Measured after zeroing rotation so the box reflects the final orientation.
+        const BoundingBox cur = ap.transformed_poly().contour.bounding_box();
+
+        // TODO: parts longer than the plate currently abort the whole job. No strategy
+        // has been chosen yet -- rotating to the X axis costs the side-by-side layout and
+        // the clearance it buys, a diagonal placement complicates the sequential-print
+        // clearance check, and splitting or scaling changes the part. Revisit once we
+        // know which tradeoff is acceptable.
+        if (cur.size().y() > bed_bb.size().y()) {
+            err = (boost::format("object %1% is %2%mm long, exceeding the %3%mm plate depth")
+                   % ap.name % unscale<double>(cur.size().y()) % unscale<double>(bed_bb.size().y())).str();
+            return false;
+        }
+
+        // Index order is load order, so the first file on the command line takes the
+        // left edge; the parts arrive centred on the origin and cannot be told apart
+        // by their incoming position.
+        const coord_t target_x = (n == 1)
+            ? bed_bb.min.x() + (bed_bb.size().x() - cur.size().x()) / 2
+            : bed_bb.min.x() + coord_t(double(bed_bb.size().x() - cur.size().x()) * double(i) / double(n - 1));
+        const coord_t target_y = bed_bb.min.y() + (bed_bb.size().y() - cur.size().y()) / 2;
+
+        ap.translation += Vec2crd(target_x - cur.min.x(), target_y - cur.min.y());
+
+        BOOST_LOG_TRIVIAL(info) << boost::format("arrange_left_right: %1% -> x=%2%mm y=%3%mm")
+            % ap.name % unscale<double>(target_x) % unscale<double>(target_y);
+    }
+
+    return true;
+}
+
 int CLI::run(int argc, char **argv)
 {
     // Mark the main thread for the debugger and for runtime checks.
@@ -5970,7 +6020,18 @@ int CLI::run(int argc, char **argv)
 
                 //Step-3:do the arrange
                 BOOST_LOG_TRIVIAL(info) << boost::format("start %1% th arranging...")%arrange_count;
-                arrangement::arrange(selected, unselected, beds, arrange_cfg);
+                if (selected.size() > 2) {
+                    BOOST_LOG_TRIVIAL(error) << boost::format("template is printable, it should not be printable: "
+                        "found %1% printable objects, expected 1 or 2") % selected.size();
+                    record_exit_reson(outfile_dir, CLI_OBJECT_ARRANGE_FAILED, 0, cli_errors[CLI_OBJECT_ARRANGE_FAILED], sliced_info);
+                    flush_and_exit(CLI_OBJECT_ARRANGE_FAILED);
+                }
+                std::string lr_err;
+                if (!arrange_left_right(selected, get_bed_shape(m_print_config), lr_err)) {
+                    BOOST_LOG_TRIVIAL(error) << lr_err;
+                    record_exit_reson(outfile_dir, CLI_OBJECT_ARRANGE_FAILED, 0, cli_errors[CLI_OBJECT_ARRANGE_FAILED], sliced_info);
+                    flush_and_exit(CLI_OBJECT_ARRANGE_FAILED);
+                }
                 arrangement::arrange(unprintable, {}, beds, arrange_cfg);
                 BOOST_LOG_TRIVIAL(info) << boost::format("finished %1% th arranging...")%arrange_count;
 
