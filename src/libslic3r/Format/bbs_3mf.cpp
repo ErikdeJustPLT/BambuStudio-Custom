@@ -4689,8 +4689,15 @@ void PlateData::parse_filament_info(GCodeProcessorResult *result)
             else if (key == FILAMENT_VOL_MAP_ATTR) {
                 if (m_curr_plater){
                     auto filament_volume_map = get_vector_from_string(value);
+                    // Stored values are NozzleVolumeType ordinals (0=Standard, 1=High Flow, 3=TPU High
+                    // Flow, 5=E3D High Flow, ...). A stale "> 1" clamp here used to silently corrupt
+                    // any value above High Flow back to Standard, which desynced the tool-change logic
+                    // from the printer's actual nozzle assignment. Validate against the real enum instead.
+                    static const std::set<NozzleVolumeType> valid_volume_types = get_valid_nozzle_volume_type();
                     for (size_t idx = 0; idx < filament_volume_map.size(); ++idx) {
-                        if (filament_volume_map[idx] > 1) {
+                        if (valid_volume_types.count(static_cast<NozzleVolumeType>(filament_volume_map[idx])) == 0) {
+                            BOOST_LOG_TRIVIAL(warning) << boost::format("_BBS_3MF_Importer: invalid filament_volume_maps value %1% at index %2%, falling back to Standard")
+                                                            % filament_volume_map[idx] % idx;
                             filament_volume_map[idx] = 0;
                         }
                     }
