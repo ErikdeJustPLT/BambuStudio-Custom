@@ -1528,12 +1528,23 @@ static void load_downward_settings_list_from_config(std::string config_file, std
 // portrait part too deep for the plate and forces a 90 degree rotation that splits
 // a pair across two plates. Parts sit side by side in X, never behind each other,
 // so depth is checked against the raw plate with no clearance applied.
+//
+// get_bed_shape() already trims raw_bedpts to the intersection of both extruders'
+// reachable areas, but "flush to the extremes" still puts a part's edge right on
+// that boundary. On the H2D that boundary sits next to the idle nozzle's parking/
+// exclusion zone, so a toolpath drawn right at the edge can be flagged unprintable
+// for that extruder (order S126143067). Pull both X extremes in by a fixed margin
+// so parts sit just inside the safe area instead of touching it.
+static const coord_t ARRANGE_LR_X_MARGIN = scale_(5.0);
+
 static bool arrange_left_right(ArrangePolygons &selected, const Points &raw_bedpts, std::string &err)
 {
     if (selected.empty())
         return true;
 
-    const BoundingBox bed_bb = Polygon(raw_bedpts).bounding_box();
+    BoundingBox bed_bb = Polygon(raw_bedpts).bounding_box();
+    bed_bb.min.x() += ARRANGE_LR_X_MARGIN;
+    bed_bb.max.x() -= ARRANGE_LR_X_MARGIN;
     const size_t      n      = selected.size();
 
     for (size_t i = 0; i < n; ++i) {
