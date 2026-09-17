@@ -1,0 +1,31 @@
+# Repacks an already-built bambu-studio binary + resources + deps libs (extracted
+# from the bambu-build-env container) into the same slim runtime layout the main
+# Dockerfile's second stage produces. Used to ship a source fix without paying for
+# a full from-scratch rebuild (which would also need --no-cache, since the main
+# Dockerfile's `git clone` layer is cached by instruction text, not repo content).
+#
+# Build context: Dockerfile.slim-repack + bambu-studio + resources/ + lib/ +
+# bambu-headless, as assembled under /tmp/slim_ctx on the build server.
+
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y \
+    xvfb xauth \
+    libgtk-3-0 libwebkit2gtk-4.1-0 \
+    libgstreamer1.0-0 libgstreamer-plugins-base1.0-0 \
+    libosmesa6 libsecret-1-0 libgl1 libglu1-mesa libglew2.2 \
+    libcairo2 libpango-1.0-0 libgdk-pixbuf-2.0-0 libdbus-1-3 && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+COPY bambu-studio /opt/bambustudio/bambu-studio
+COPY resources /opt/bambustudio/resources
+COPY lib/*.so* /usr/local/lib/
+RUN ldconfig
+
+COPY bambu-headless /opt/bambu/squashfs-root/AppRun
+RUN chmod +x /opt/bambu/squashfs-root/AppRun
+
+ENTRYPOINT []
+CMD ["/opt/bambu/squashfs-root/AppRun", "--help"]
